@@ -1,9 +1,21 @@
 name = "metricmind-api"
 main = "src/worker.js"
-compatibility_date = "2026-07-01"
+compatibility_date = "2026-07-12"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ORGANIZATION_TIMEZONE = "Asia/Kolkata"
+ANALYTICS_SCHEMA = "analytics"
+ANALYTICS_TABLE = "product_events"
 
-# Bind a Postgres-compatible query service as ANALYTICS_DB.
-# The binding must expose query(sql, params, options).
+# Create the binding with:
+# npx wrangler hyperdrive create metricmind-analytics \
+#   --connection-string="$METRICMIND_READER_DATABASE_URL" \
+#   --binding=HYPERDRIVE \
+#   --caching-disabled \
+#   --update-config
+#
+# Wrangler will append:
+# [[hyperdrive]]
+# binding = "HYPERDRIVE"
+# id = "<generated-hyperdrive-id>"
