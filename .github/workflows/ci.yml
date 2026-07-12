@@ -33,4 +33,9 @@ jobs:
         with:
           node-version: 22
       - run: npm install --ignore-scripts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase-1b-package-lock
+          path: package-lock.json
+          retention-days: 1
       - run: npm run validate
