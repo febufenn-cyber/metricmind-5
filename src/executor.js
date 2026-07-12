@@ -1,4 +1,5 @@
 import { MetricmindError } from './errors.js';
+import { createHyperdriveAdapter } from './postgres-adapter.js';
 
 export class BindingQueryExecutor {
   constructor(binding) {
@@ -9,7 +10,7 @@ export class BindingQueryExecutor {
     if (!this.binding || typeof this.binding.query !== 'function') {
       throw new MetricmindError(
         'WAREHOUSE_NOT_CONFIGURED',
-        'No Postgres query binding is configured. Bind ANALYTICS_DB to a read-only query adapter.',
+        'No Postgres query binding is configured. Bind HYPERDRIVE or ANALYTICS_DB to a read-only query adapter.',
         undefined,
         503
       );
@@ -17,7 +18,7 @@ export class BindingQueryExecutor {
 
     const startedAt = Date.now();
     try {
-      const result = await this.binding.query(request.sql, request.params, {
+      const result = await this.binding.query(request.sql, request.params ?? [], {
         readOnly: true,
         statementTimeoutMs: request.statementTimeoutMs,
         maximumRows: request.maximumRows
@@ -32,9 +33,20 @@ export class BindingQueryExecutor {
       return { rows, durationMs: Date.now() - startedAt };
     } catch (error) {
       if (error instanceof MetricmindError) throw error;
-      throw new MetricmindError('WAREHOUSE_QUERY_FAILED', 'The read-only warehouse query failed.', { reason: error?.message }, 502);
+      throw new MetricmindError('WAREHOUSE_QUERY_FAILED', 'The read-only warehouse query failed.', undefined, 502);
     }
   }
+}
+
+export function createWarehouseExecutor(env = {}, options = {}) {
+  if (env.ANALYTICS_DB && typeof env.ANALYTICS_DB.query === 'function') {
+    return new BindingQueryExecutor(env.ANALYTICS_DB);
+  }
+  const adapter = createHyperdriveAdapter(env.HYPERDRIVE, {
+    clientFactory: options.clientFactory,
+    applicationName: options.applicationName ?? 'metricmind-phase1b'
+  });
+  return new BindingQueryExecutor(adapter);
 }
 
 export class StaticExecutor {

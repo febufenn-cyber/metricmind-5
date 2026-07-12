@@ -10,25 +10,27 @@ Phase 1 answers aggregate descriptive questions over one allowlisted Postgres ev
 2. SQL comes from deterministic templates, not free-form model output.
 3. Values are passed as bound parameters.
 4. Only the configured schema and event table may be queried.
-5. Execution uses a read-only adapter, statement timeout, and row cap.
-6. Deterministic code calculates changes and percentages.
-7. Answers expose metric definition, time boundaries, timezone, SQL, parameters, duration, and assumptions.
-8. RLS is enabled deny-by-default for application metadata.
+5. Execution uses a read-only Postgres transaction, statement timeout, and row cap.
+6. A connection is rejected when the configured role can write to the event table.
+7. Deterministic code calculates changes and percentages.
+8. Answers expose metric definition, time boundaries, timezone, SQL, parameters, duration, assumptions, and data freshness.
+9. RLS is enabled deny-by-default for application metadata.
 
-## Warehouse adapter contract
+## Phase 1B warehouse adapter
 
-Bind `ANALYTICS_DB` to an object exposing:
+Cloudflare Workers connect through the `HYPERDRIVE` binding using `node-postgres` (`pg`). `ANALYTICS_DB` remains available as an injected adapter for tests and platform-specific integrations.
 
-```js
-async query(sql, params, options) {
-  // options.readOnly is always true
-  // options.statementTimeoutMs bounds execution
-  // options.maximumRows bounds result size
-  return { rows: [] };
-}
-```
+The concrete adapter:
 
-The adapter must use a dedicated Postgres role with only `CONNECT`, schema `USAGE`, and `SELECT` on specifically approved event tables. It must reject mutations independently of application validation.
+- creates a client per request while Hyperdrive manages the underlying pool;
+- opens `BEGIN TRANSACTION READ ONLY`;
+- applies local statement and idle-transaction deadlines;
+- returns aggregate rows only;
+- classifies authentication, permission, timeout, connectivity, and schema errors;
+- redacts database error messages from public responses;
+- always rolls back and closes the logical client.
+
+See [`PHASE1B.md`](PHASE1B.md) for provisioning, local development, credential rotation, and disconnect procedures.
 
 ## Canonical event mapping
 
@@ -40,7 +42,7 @@ The initial workspace expects:
 - optional `inserted_at`
 - allowlisted dimensions: `platform`, `source`, `country`, `app_version`
 
-Change the mapping in `src/config.js` or replace it with persisted organization configuration.
+The mapping can be overridden with Worker environment variables. Identifiers remain validated before use.
 
 ## API
 
@@ -49,8 +51,18 @@ Change the mapping in `src/config.js` or replace it with persisted organization 
 - `POST /v1/questions/interpret`
 - `POST /v1/questions`
 - `POST /v1/data-sources/test`
+- `GET /v1/data-sources/schema`
+- `GET /v1/data-sources/freshness`
 
 Set `API_TOKEN` to require bearer authentication. Production should replace this bootstrap guard with verified Supabase JWTs and organization membership checks.
+
+## Data-source checks
+
+`POST /v1/data-sources/test` verifies the target table, `SELECT` permission, absence of table write privileges, and the active read-only transaction.
+
+`GET /v1/data-sources/schema` returns column metadata, required-column mapping status, restricted-column warnings, and event-name counts from a bounded recent window. It does not return raw event rows. Invalid mappings are returned as diagnostics without attempting a query against missing columns.
+
+`GET /v1/data-sources/freshness` returns the latest ingestion and event timestamps. The live question pipeline includes this evidence automatically.
 
 ## Known deliberate limitations
 
@@ -61,16 +73,16 @@ Set `API_TOKEN` to require bearer authentication. Production should replace this
 - No raw user export.
 - No automatic root-cause claims.
 - No frontend yet; the API response includes a constrained chart specification.
-- Credential encryption and a concrete Postgres/Hyperdrive adapter depend on deployment infrastructure and are not faked in this repository.
+- Organization configuration is environment-backed rather than persisted.
+- Supabase membership policies and encrypted per-organization configuration remain incomplete.
 
 ## Exit gate
 
-Before calling Phase 1 production-ready:
+Before calling all of Phase 1 production-ready:
 
-- implement a concrete read-only warehouse adapter;
-- persist organization configuration and encrypted credentials;
-- implement Supabase membership policies;
+- persist organization configuration without storing origin credentials in application tables;
+- implement Supabase membership policies and JWT enforcement;
 - expand golden questions to at least 50;
-- run adversarial query tests against a disposable Postgres instance;
+- add a larger adversarial Postgres corpus;
 - validate timezone boundaries across DST and non-DST zones;
-- add ingestion freshness queries and warnings to the live pipeline.
+- add index and query-plan diagnostics for large warehouses.

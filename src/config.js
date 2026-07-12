@@ -70,11 +70,27 @@ export function validateWorkspace(workspace) {
   if (!source || source.dialect !== 'postgres') {
     throw new MetricmindError('INVALID_DATA_SOURCE', 'Phase 1 supports Postgres only.');
   }
-  for (const value of [source.schema, source.table, ...Object.values(source.columns)]) {
+  for (const value of [
+    source.schema,
+    source.table,
+    source.columns.eventName,
+    source.columns.userId,
+    source.columns.occurredAt
+  ]) {
     assertIdentifier(value);
   }
+  if (source.columns.insertedAt) assertIdentifier(source.columns.insertedAt);
   for (const dimension of Object.values(source.dimensions ?? {})) {
     assertIdentifier(dimension.column);
+  }
+  for (const [name, value] of [
+    ['statementTimeoutMs', source.statementTimeoutMs],
+    ['maximumRows', source.maximumRows],
+    ['freshnessThresholdMinutes', source.freshnessThresholdMinutes]
+  ]) {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new MetricmindError('INVALID_DATA_SOURCE_LIMIT', `${name} must be a positive integer.`);
+    }
   }
   if (!Array.isArray(workspace.metrics) || workspace.metrics.length === 0) {
     throw new MetricmindError('NO_METRICS', 'At least one verified metric is required.');
