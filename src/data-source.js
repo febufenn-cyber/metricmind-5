@@ -41,6 +41,8 @@ export async function verifyDataSourceConnection({ executor, workspace }) {
 
 export async function discoverDataSource({ executor, workspace, eventLimit = 50, eventLookbackDays = 30, now = new Date() }) {
   const source = workspace.dataSource;
+  const limit = boundedEventLimit(eventLimit);
+  const lookbackDays = boundedLookbackDays(eventLookbackDays);
   const columnsExecution = await executor.query({
     sql: `SELECT column_name, data_type, is_nullable\nFROM information_schema.columns\nWHERE table_schema = $1 AND table_name = $2\nORDER BY ordinal_position`,
     params: [source.schema, source.table],
@@ -60,11 +62,26 @@ export async function discoverDataSource({ executor, workspace, eventLimit = 50,
   const required = [source.columns.eventName, source.columns.userId, source.columns.occurredAt];
   const missingRequiredColumns = required.filter((column) => !available.has(column));
   const restrictedColumnsPresent = (source.restrictedColumns ?? []).filter((column) => available.has(column));
+  const mapping = {
+    valid: missingRequiredColumns.length === 0,
+    requiredColumns: required,
+    missingRequiredColumns,
+    restrictedColumnsPresent
+  };
+
+  if (!mapping.valid) {
+    return {
+      table: `${source.schema}.${source.table}`,
+      columns,
+      mapping,
+      eventLookbackDays: lookbackDays,
+      topEvents: [],
+      durationMs: columnsExecution.durationMs
+    };
+  }
 
   const table = `${quoteIdentifier(source.schema)}.${quoteIdentifier(source.table)}`;
   const eventName = quoteIdentifier(source.columns.eventName);
-  const limit = boundedEventLimit(eventLimit);
-  const lookbackDays = boundedLookbackDays(eventLookbackDays);
   const lookbackStart = new Date(now.getTime() - lookbackDays * 86_400_000).toISOString();
   const occurredAt = quoteIdentifier(source.columns.occurredAt);
   const eventsExecution = await executor.query({
@@ -77,12 +94,7 @@ export async function discoverDataSource({ executor, workspace, eventLimit = 50,
   return {
     table: `${source.schema}.${source.table}`,
     columns,
-    mapping: {
-      valid: missingRequiredColumns.length === 0,
-      requiredColumns: required,
-      missingRequiredColumns,
-      restrictedColumnsPresent
-    },
+    mapping,
     eventLookbackDays: lookbackDays,
     topEvents: eventsExecution.rows.map((row) => ({
       eventName: String(row.event_name),
