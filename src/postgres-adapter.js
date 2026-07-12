@@ -45,7 +45,7 @@ export class PostgresQueryAdapter {
         connectionString: this.connectionString,
         applicationName: this.applicationName,
         connectionTimeoutMs: Math.min(statementTimeoutMs, 5_000),
-        queryTimeoutMs: statementTimeoutMs
+        queryTimeoutMs: statementTimeoutMs + 1_000
       });
       if (!client || typeof client.connect !== 'function' || typeof client.query !== 'function' || typeof client.end !== 'function') {
         throw new MetricmindError('INVALID_POSTGRES_CLIENT', 'The Postgres client factory returned an invalid client.', undefined, 500);
