@@ -1,0 +1,4 @@
+# Optional local bearer token. Requests are unauthenticated when omitted.
+API_TOKEN=replace-me
+# Organization timezone used when a request does not provide one.
+ORGANIZATION_TIMEZONE=Asia/Kolkata

@@ -1,0 +1,22 @@
+[
+  {
+    "question": "How many signups happened yesterday?",
+    "expected": { "intent": "metric_total", "metricId": "signup", "period": "yesterday" }
+  },
+  {
+    "question": "Show daily activation for the last 30 days",
+    "expected": { "intent": "time_series", "metricId": "activation", "period": "last_30_complete_days" }
+  },
+  {
+    "question": "Break down purchases by platform last week",
+    "expected": { "intent": "segmentation", "metricId": "purchase", "period": "previous_calendar_week", "dimension": "platform" }
+  },
+  {
+    "question": "Which source produced the most signups last month?",
+    "expected": { "intent": "ranking", "metricId": "signup", "period": "previous_calendar_month", "dimension": "source" }
+  },
+  {
+    "question": "Compare activation month over month",
+    "expected": { "intent": "period_comparison", "metricId": "activation", "period": "previous_calendar_month" }
+  }
+]

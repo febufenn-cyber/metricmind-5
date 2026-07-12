@@ -1,0 +1,15 @@
+{
+  "name": "metricmind",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Evidence-first product analytics trust kernel for Postgres event data.",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/*.js && node --check test/*.js",
+    "validate": "npm run check && npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
