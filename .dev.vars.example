@@ -1,4 +1,18 @@
 # Optional local bearer token. Requests are unauthenticated when omitted.
 API_TOKEN=replace-me
-# Organization timezone used when a request does not provide one.
+
+# Organization and canonical event-table mapping.
 ORGANIZATION_TIMEZONE=Asia/Kolkata
+ANALYTICS_SCHEMA=analytics
+ANALYTICS_TABLE=product_events
+ANALYTICS_EVENT_NAME_COLUMN=event_name
+ANALYTICS_USER_ID_COLUMN=user_id
+ANALYTICS_OCCURRED_AT_COLUMN=occurred_at
+ANALYTICS_INSERTED_AT_COLUMN=inserted_at
+ANALYTICS_STATEMENT_TIMEOUT_MS=15000
+ANALYTICS_MAXIMUM_ROWS=1000
+ANALYTICS_FRESHNESS_THRESHOLD_MINUTES=360
+
+# Hyperdrive local development uses a shell environment variable rather than
+# .dev.vars. For the HYPERDRIVE binding, export:
+# CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=postgres://metricmind_reader:metricmind_local@127.0.0.1:55432/metricmind
