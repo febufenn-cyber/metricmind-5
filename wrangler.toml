@@ -1,0 +1,9 @@
+name = "metricmind-api"
+main = "src/worker.js"
+compatibility_date = "2026-07-01"
+
+[vars]
+ORGANIZATION_TIMEZONE = "Asia/Kolkata"
+
+# Bind a Postgres-compatible query service as ANALYTICS_DB.
+# The binding must expose query(sql, params, options).

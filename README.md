@@ -1,42 +1,60 @@
 # Metricmind
 
-> chat copilot that answers 'why did signups drop?' by querying your product events and returning charts plus a written diagnosis.
+> Evidence-first product analytics for questions such as “How did signups change?”—without giving an AI unrestricted SQL access.
 
-**Alternative to the product-shape pioneered by Amplitude (YC W12)** — rank #5 of 500 in the [YC-500 Fable 5 Venture Blueprint](https://github.com/) (score 7.35/10).
+Metricmind Phase 1 is a working **trust kernel** for a narrow Postgres event model. It interprets supported descriptive questions, maps them to verified metrics, compiles parameterized SQL from deterministic templates, enforces a strict query policy, verifies result shape and arithmetic, and returns an auditable answer plus a constrained chart specification.
 
-## Why this exists
-Public company; proves durable demand for deep behavioral analytics. The buildable wedge: ai copilot that answers product questions over an existing warehouse.
+## What is implemented
 
-## MVP scope
-- [ ] NL-to-SQL over events
-- [ ] auto-chart
-- [ ] anomaly callouts
-- [ ] saved questions
-- [ ] Slack answers
+- Postgres-only, one-table analytics boundary
+- Verified signup, activation, and purchase metrics
+- Metric totals, complete-period comparisons, daily trends, segmentation, and ranking
+- Organization timezone handling
+- Parameterized SQL compiler
+- Schema/table allowlist and read-only SQL policy
+- Statement timeout and result-cap adapter contract
+- Aggregate-only privacy boundary
+- Evidence-first responses with SQL, parameters, metric definition, periods, assumptions, and execution metadata
+- Cloudflare Worker-compatible HTTP API
+- Supabase Phase 1 metadata schema with RLS enabled deny-by-default
+- Node test suite and starter golden evaluation set
+
+## Deliberately not implemented yet
+
+Metricmind does not claim root causes, predict outcomes, export personal data, write to the warehouse, accept arbitrary SQL, or pretend that credentials and Supabase membership are secure before deployment-specific adapters and policies exist.
+
+## Run locally
+
+```bash
+npm run validate
+```
+
+The core has no runtime package dependencies. To execute live questions, bind `ANALYTICS_DB` to a read-only Postgres adapter following the contract in [`docs/PHASE1.md`](docs/PHASE1.md).
+
+## Example
+
+```http
+POST /v1/questions/interpret
+Content-Type: application/json
+
+{"question":"How did signups change last week?"}
+```
+
+The interpretation is converted into a complete-period plan in the organization timezone. Live execution through `POST /v1/questions` requires the warehouse binding.
 
 ## Architecture
-`Workers+Supabase+Claude; connect user's Postgres` — Cloudflare Workers + Hono API, Supabase (Postgres + RLS + Auth + pgvector), Claude API via Agent SDK (claude-fable-5 for agent reasoning, claude-haiku-4-5 for volume), wrangler deploys.
 
-**Integrations:** Anthropic; Supabase; Slack; user Postgres/BigQuery
-**Data:** Read-only access to product event tables + schema
-**Agent core:** Core: agent plans queries, runs them, and narrates findings end-to-end.
+```text
+Question
+  → deterministic interpreter
+  → verified metric resolution
+  → complete-period planner
+  → parameterized Postgres compiler
+  → SQL safety policy
+  → read-only warehouse adapter
+  → result verifier
+  → deterministic arithmetic
+  → evidence-first answer + chart spec
+```
 
-## Business
-| | |
-|---|---|
-| Monetization | Per-seat SaaS plus query volume |
-| First customer | PM/growth teams already on a warehouse |
-| GTM wedge | Content on 'chat with your product data', PLG free trial |
-| Competition risk | High: every BI vendor adds copilots |
-| Regulatory/trust risk | Med: data access trust |
-| India angle | Serves lean Indian growth teams lacking dedicated data analysts. |
-| Difficulty / build time | Medium / 4-6 weeks |
-
-## 30-day plan
-- **W1:** core loop — NL-to-SQL over events + auto-chart
-- **W2:** anomaly callouts + saved questions + Slack answers + auth + billing
-- **W3:** polish, instrument events, seed first users via: Content on 'chat with your product data', PLG free trial
-- **W4:** launch + first revenue; kill/scale decision
-
----
-*Built with Fable 5 (Claude Code). Blueprint row: inspired by Amplitude — "Enterprise digital analytics: product analytics, experimentation, CDP, session replay."*
+See [`docs/PHASE1.md`](docs/PHASE1.md) for boundaries, deployment requirements, and the remaining production exit gate.
