@@ -16,7 +16,11 @@ test('Phase 1B executes a verified question against disposable Postgres', { skip
   await admin.connect();
   try {
     await admin.query('DROP SCHEMA IF EXISTS analytics CASCADE');
-    await admin.query('DROP ROLE IF EXISTS metricmind_reader');
+    const role = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = 'metricmind_reader'");
+    if (role.rowCount > 0) {
+      await admin.query('DROP OWNED BY metricmind_reader');
+      await admin.query('DROP ROLE metricmind_reader');
+    }
     await admin.query(`
       CREATE SCHEMA analytics;
       CREATE TABLE analytics.product_events (
