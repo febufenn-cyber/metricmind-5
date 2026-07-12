@@ -60,7 +60,7 @@ Set `API_TOKEN` to require bearer authentication. Production should replace this
 
 `POST /v1/data-sources/test` verifies the target table, `SELECT` permission, absence of table write privileges, and the active read-only transaction.
 
-`GET /v1/data-sources/schema` returns column metadata, required-column mapping status, restricted-column warnings, and event-name counts from a bounded recent window. It does not return raw event rows.
+`GET /v1/data-sources/schema` returns column metadata, required-column mapping status, restricted-column warnings, and event-name counts from a bounded recent window. It does not return raw event rows. Invalid mappings are returned as diagnostics without attempting a query against missing columns.
 
 `GET /v1/data-sources/freshness` returns the latest ingestion and event timestamps. The live question pipeline includes this evidence automatically.
 
@@ -85,5 +85,4 @@ Before calling all of Phase 1 production-ready:
 - expand golden questions to at least 50;
 - add a larger adversarial Postgres corpus;
 - validate timezone boundaries across DST and non-DST zones;
-- add index and query-plan diagnostics for large warehouses;
-- generate and commit a dependency lockfile from a networked development environment.
+- add index and query-plan diagnostics for large warehouses.
