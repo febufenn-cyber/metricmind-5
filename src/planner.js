@@ -58,6 +58,9 @@ function resolveDependencies(metricVersion, catalog) {
     const metric = catalog.metrics.find((item) => item.id === metricId);
     if (!metric) throw new MetricmindError('INVALID_RATIO_DEPENDENCY', `Unknown ${role} metric ${metricId}.`);
     const version = getActiveMetricVersion(catalog, metricId);
+    if (version.definition.aggregation.type === 'ratio') {
+      throw new MetricmindError('NESTED_RATIO_UNSUPPORTED', 'Ratio metrics cannot currently depend on another ratio metric.');
+    }
     if (version.definition.entityId !== metricVersion.definition.entityId) {
       throw new MetricmindError('INCOMPATIBLE_RATIO_ENTITIES', 'Ratio components must count the same semantic entity.');
     }

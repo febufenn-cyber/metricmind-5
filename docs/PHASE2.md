@@ -17,9 +17,9 @@ Define a business metric once, verify the exact entity, aggregation, filters, ex
 7. Entity, aggregation, timestamp, predicates, exclusions, and dimension permissions remain structured data.
 8. Metric definitions compile through deterministic code and still pass the Phase 1 SQL safety kernel.
 9. Schema drift can mark a metric unhealthy, but never silently rewrites its meaning.
-10. All semantic mutations are organization-scoped and auditable.
+10. All semantic mutations are organization-scoped, revision-checked, authenticated, and auditable.
 
-## Initial supported model
+## Implemented model
 
 - entities: user
 - aggregations: distinct count, event count, ratio
@@ -28,31 +28,38 @@ Define a business metric once, verify the exact entity, aggregation, filters, ex
 - dimensions: approved one-column dimensions
 - reusable exclusion sets
 - immutable versions with `restated` or `effective_dated` history policy
+- deterministic semantic compiler and immutable answer lineage
+- draft, review, validation, verification, and activation workflow
+- optimistic semantic-store revisions
+- live schema dependency health
 
-Funnels, retention, arbitrary SQL, cross-warehouse metrics, and automatic metric activation remain outside this first Phase 2 release.
+Funnels, retention, arbitrary SQL, cross-warehouse metrics, automatic metric activation, and nested ratio dependencies remain outside this release.
 
-## Delivery slices
+## Semantic APIs
 
-### Phase 2A — catalog foundation
+- `GET /v1/semantic/metrics`
+- `GET /v1/semantic/metrics/{metricId}`
+- `POST /v1/semantic/metrics/{metricId}/versions`
+- `POST /v1/semantic/versions/{versionId}/submit`
+- `POST /v1/semantic/versions/{versionId}/validate`
+- `POST /v1/semantic/versions/{versionId}/verify`
+- `POST /v1/semantic/versions/{versionId}/activate`
+- `GET /v1/semantic/health`
 
-- semantic migration and RLS boundary
-- entities, dimensions, exclusions, stable metrics, aliases, immutable versions
-- lifecycle validation and active-version invariants
+Mutation endpoints require `API_TOKEN`, `X-Metricmind-Actor`, and a persistent `SEMANTIC_STORE` binding implementing `load(organizationId)` and `save(organizationId, catalog, { expectedRevision })`. The default seed store is read-only.
 
-### Phase 2B — semantic compiler
+## Lifecycle
 
-- resolve aliases to active versions
-- compile structured metric definitions into deterministic SQL
-- attach semantic lineage to evidence
-- reject unknown and ambiguous concepts
+```text
+draft
+  → in_review
+  → passed validation
+  → verified
+  → active
+```
 
-### Phase 2C — verification and health
+Activating a verified version supersedes the previous active version atomically. Verification is blocked unless the latest validation run passed. Store revisions prevent lost updates.
 
-- preview and validation checks
-- verify and activate lifecycle
-- schema dependency health
-- metric impact and review endpoints
+## Exit gate achieved
 
-## Exit gate
-
-Phase 2 is complete when all production answers reference an active immutable semantic version, unknown terms are refused, ambiguous aliases require clarification, version changes are auditable, and schema drift can invalidate affected metrics without silently changing historical evidence.
+Production answers now reference active immutable semantic versions, unknown terms are refused, equal-strength aliases require clarification, version changes are auditable, and schema drift can mark affected metrics invalid without silently changing historical evidence.

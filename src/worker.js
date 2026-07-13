@@ -3,7 +3,15 @@ import { createWarehouseExecutor } from './executor.js';
 import { asPublicError, MetricmindError } from './errors.js';
 import { answerQuestion, interpretOnly } from './pipeline.js';
 import { discoverDataSource, getDataSourceFreshness, verifyDataSourceConnection } from './data-source.js';
-import { createSeedSemanticCatalog, getActiveMetricVersion } from './semantic-catalog.js';
+import { createMetricDraft, getActiveMetricVersion } from './semantic-catalog.js';
+import {
+  activateMetricVersion,
+  attachValidationRun,
+  submitMetricVersion,
+  verifyMetricVersion
+} from './semantic-governance.js';
+import { createSemanticStore } from './semantic-store.js';
+import { evaluateSemanticHealth, previewMetricVersion } from './semantic-validation.js';
 
 export default {
   async fetch(request, env = {}) {
@@ -11,30 +19,87 @@ export default {
     try {
       authenticate(request, env);
       const workspace = workspaceFromEnv(env);
-      const semanticCatalog = createSeedSemanticCatalog(workspace);
+      const semanticStore = createSemanticStore(env, workspace);
+      const snapshot = await semanticStore.load(workspace.organization.id);
+      const semanticCatalog = snapshot.catalog;
 
       if (request.method === 'GET' && url.pathname === '/health') {
         return json({ status: 'ok', phase: '1-trust-kernel' });
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/metrics') {
+        return json({ metrics: listMetrics(semanticCatalog) });
+      }
+
+      if (request.method === 'GET' && url.pathname === '/v1/semantic/metrics') {
+        return json({ revision: snapshot.revision, metrics: listMetrics(semanticCatalog) });
+      }
+
+      const metricDetail = url.pathname.match(/^\/v1\/semantic\/metrics\/([^/]+)$/);
+      if (request.method === 'GET' && metricDetail) {
+        const metric = semanticCatalog.metrics.find((item) => item.id === decodeURIComponent(metricDetail[1]));
+        if (!metric) throw new MetricmindError('UNKNOWN_METRIC', 'Metric does not exist.', undefined, 404);
         return json({
-          metrics: semanticCatalog.metrics.map((metric) => {
-            const version = getActiveMetricVersion(semanticCatalog, metric.id);
-            return {
-              id: metric.id,
-              name: metric.name,
-              description: metric.description,
-              aliases: metric.aliases,
-              version: {
-                id: version.id,
-                number: version.versionNumber,
-                definitionHash: version.definitionHash,
-                status: version.status
-              }
-            };
-          })
+          revision: snapshot.revision,
+          metric,
+          versions: semanticCatalog.versions.filter((version) => version.metricId === metric.id),
+          validationRuns: (semanticCatalog.validationRuns ?? []).filter((run) => semanticCatalog.versions.some((version) => version.metricId === metric.id && version.id === run.metricVersionId)),
+          auditEvents: (semanticCatalog.auditEvents ?? []).filter((event) => event.objectId === metric.id || semanticCatalog.versions.some((version) => version.metricId === metric.id && event.objectId === version.id))
         });
+      }
+
+      const createVersion = url.pathname.match(/^\/v1\/semantic\/metrics\/([^/]+)\/versions$/);
+      if (request.method === 'POST' && createVersion) {
+        const actorId = semanticMutationActor(request, env);
+        const body = await readJson(request);
+        const result = createMetricDraft(semanticCatalog, decodeURIComponent(createVersion[1]), body.definition, actorId);
+        const saved = await semanticStore.save(workspace.organization.id, result.catalog, { expectedRevision: snapshot.revision });
+        return json({ revision: saved.revision, draft: result.draft }, 201);
+      }
+
+      const versionAction = url.pathname.match(/^\/v1\/semantic\/versions\/([^/]+)\/(submit|validate|verify|activate)$/);
+      if (request.method === 'POST' && versionAction) {
+        const actorId = semanticMutationActor(request, env);
+        const versionId = decodeURIComponent(versionAction[1]);
+        const action = versionAction[2];
+        let result;
+        if (action === 'submit') {
+          result = submitMetricVersion(semanticCatalog, versionId, actorId);
+        } else if (action === 'validate') {
+          const body = await readJson(request);
+          const validationRun = await previewMetricVersion({
+            catalog: semanticCatalog,
+            metricVersionId: versionId,
+            workspace,
+            executor: createWarehouseExecutor(env),
+            now: new Date(),
+            period: body.period ?? 'last_7_complete_days',
+            expectedValue: body.expectedValue
+          });
+          result = attachValidationRun(semanticCatalog, validationRun, actorId);
+        } else if (action === 'verify') {
+          result = verifyMetricVersion(semanticCatalog, versionId, actorId);
+        } else {
+          result = activateMetricVersion(semanticCatalog, versionId, actorId);
+        }
+        const saved = await semanticStore.save(workspace.organization.id, result.catalog, { expectedRevision: snapshot.revision });
+        return json({
+          revision: saved.revision,
+          version: result.version ?? null,
+          validationRun: result.validationRun ?? null,
+          supersededVersionIds: result.supersededVersionIds ?? []
+        });
+      }
+
+      if (request.method === 'GET' && url.pathname === '/v1/semantic/health') {
+        const schema = await discoverDataSource({
+          executor: createWarehouseExecutor(env),
+          workspace,
+          eventLimit: 1,
+          eventLookbackDays: 1,
+          now: new Date()
+        });
+        return json({ revision: snapshot.revision, ...evaluateSemanticHealth(semanticCatalog, schema) });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/questions/interpret') {
@@ -59,10 +124,7 @@ export default {
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/data-sources/test') {
-        const result = await verifyDataSourceConnection({
-          executor: createWarehouseExecutor(env),
-          workspace
-        });
+        const result = await verifyDataSourceConnection({ executor: createWarehouseExecutor(env), workspace });
         return json(result);
       }
 
@@ -78,11 +140,7 @@ export default {
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/data-sources/freshness') {
-        const result = await getDataSourceFreshness({
-          executor: createWarehouseExecutor(env),
-          workspace,
-          now: new Date()
-        });
+        const result = await getDataSourceFreshness({ executor: createWarehouseExecutor(env), workspace, now: new Date() });
         return json(result, 200, { 'Cache-Control': 'no-store' });
       }
 
@@ -93,6 +151,24 @@ export default {
     }
   }
 };
+
+function listMetrics(semanticCatalog) {
+  return semanticCatalog.metrics.map((metric) => {
+    const version = getActiveMetricVersion(semanticCatalog, metric.id);
+    return {
+      id: metric.id,
+      name: metric.name,
+      description: metric.description,
+      aliases: metric.aliases,
+      version: {
+        id: version.id,
+        number: version.versionNumber,
+        definitionHash: version.definitionHash,
+        status: version.status
+      }
+    };
+  });
+}
 
 export function workspaceFromEnv(env = {}) {
   return {
@@ -105,21 +181,9 @@ export function workspaceFromEnv(env = {}) {
       ...defaultWorkspace.dataSource,
       schema: env.ANALYTICS_SCHEMA || defaultWorkspace.dataSource.schema,
       table: env.ANALYTICS_TABLE || defaultWorkspace.dataSource.table,
-      statementTimeoutMs: positiveIntegerEnv(
-        env.ANALYTICS_STATEMENT_TIMEOUT_MS,
-        defaultWorkspace.dataSource.statementTimeoutMs,
-        'ANALYTICS_STATEMENT_TIMEOUT_MS'
-      ),
-      maximumRows: positiveIntegerEnv(
-        env.ANALYTICS_MAXIMUM_ROWS,
-        defaultWorkspace.dataSource.maximumRows,
-        'ANALYTICS_MAXIMUM_ROWS'
-      ),
-      freshnessThresholdMinutes: positiveIntegerEnv(
-        env.ANALYTICS_FRESHNESS_THRESHOLD_MINUTES,
-        defaultWorkspace.dataSource.freshnessThresholdMinutes,
-        'ANALYTICS_FRESHNESS_THRESHOLD_MINUTES'
-      ),
+      statementTimeoutMs: positiveIntegerEnv(env.ANALYTICS_STATEMENT_TIMEOUT_MS, defaultWorkspace.dataSource.statementTimeoutMs, 'ANALYTICS_STATEMENT_TIMEOUT_MS'),
+      maximumRows: positiveIntegerEnv(env.ANALYTICS_MAXIMUM_ROWS, defaultWorkspace.dataSource.maximumRows, 'ANALYTICS_MAXIMUM_ROWS'),
+      freshnessThresholdMinutes: positiveIntegerEnv(env.ANALYTICS_FRESHNESS_THRESHOLD_MINUTES, defaultWorkspace.dataSource.freshnessThresholdMinutes, 'ANALYTICS_FRESHNESS_THRESHOLD_MINUTES'),
       columns: {
         ...defaultWorkspace.dataSource.columns,
         eventName: env.ANALYTICS_EVENT_NAME_COLUMN || defaultWorkspace.dataSource.columns.eventName,
@@ -129,6 +193,15 @@ export function workspaceFromEnv(env = {}) {
       }
     }
   };
+}
+
+function semanticMutationActor(request, env) {
+  if (!env.API_TOKEN) {
+    throw new MetricmindError('SEMANTIC_MUTATIONS_DISABLED', 'Configure API_TOKEN and a persistent semantic store before enabling semantic mutations.', undefined, 503);
+  }
+  const actorId = request.headers.get('X-Metricmind-Actor');
+  if (!actorId) throw new MetricmindError('SEMANTIC_ACTOR_REQUIRED', 'X-Metricmind-Actor is required for semantic changes.');
+  return actorId;
 }
 
 function positiveIntegerEnv(value, fallback, name) {
