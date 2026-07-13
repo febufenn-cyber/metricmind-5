@@ -34,6 +34,7 @@ why-question
 POST /v1/investigations
 GET  /v1/investigations
 GET  /v1/investigations/{investigationId}
+POST /v1/investigations/{investigationId}/conclusion
 ```
 
 Example request:
@@ -46,13 +47,15 @@ Example request:
 }
 ```
 
-The response includes the pinned metric version, current and previous periods, data-quality evidence, observations, hypotheses, contradictions, exact queries, parameters, confidence, and next checks.
+The response includes the pinned metric version, current and previous periods, data-quality evidence, observations, hypotheses, contradictions, exact queries, parameters, confidence, and next checks. A zero net movement produces `status: no_change` instead of speculative root-cause hypotheses.
+
+Human reviewers may record `accepted`, `rejected`, or `inconclusive` decisions. Reviews are append-only, require authenticated actor identity, and never change `causalStatus` from `not_established`.
 
 ## Persistence
 
-`INVESTIGATION_STORE` may bind an organization-scoped store implementing `save`, `get`, and `list`. Without that binding, the Worker uses an explicitly labelled ephemeral in-process store for local development. The API always returns the persistence mode.
+`INVESTIGATION_STORE` may bind an organization-scoped store implementing `save`, `get`, and `list`; recording conclusions additionally requires `update`. Without that binding, the Worker uses an explicitly labelled ephemeral in-process store for local development. The API always returns the persistence mode.
 
-The Supabase migration creates an `investigations` table with RLS enabled deny-by-default. Organization membership policies remain deployment-specific and are not guessed in the repository.
+The Supabase migration creates investigation and investigation-review tables with RLS enabled deny-by-default. Organization membership policies remain deployment-specific and are not guessed in the repository.
 
 ## Initial supported investigation
 
