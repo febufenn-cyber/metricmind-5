@@ -133,10 +133,10 @@ function composeInvestigation({ investigationPlan, baseline, baselineEvidence, b
       query: breakdown.evidence
     });
   }
-  if (freshness.status !== 'unknown') {
+  if (freshness.status !== 'fresh') {
     evidence.push({ id: 'data-quality:freshness', type: 'data_quality', finding: freshness });
   }
-  if (metricHealth) {
+  if (metricHealth && metricHealth.status !== 'healthy') {
     evidence.push({ id: 'data-quality:semantic-health', type: 'data_quality', finding: metricHealth });
   }
   const observations = buildObservations(baseline, breakdowns, freshness, metricHealth);
