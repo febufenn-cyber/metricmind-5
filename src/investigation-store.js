@@ -3,9 +3,7 @@ import { MetricmindError } from './errors.js';
 const processRecords = new Map();
 
 export function createInvestigationStore(env = {}) {
-  if (env.INVESTIGATION_STORE) {
-    return new BindingInvestigationStore(env.INVESTIGATION_STORE);
-  }
+  if (env.INVESTIGATION_STORE) return new BindingInvestigationStore(env.INVESTIGATION_STORE);
   return new MemoryInvestigationStore(processRecords, 'ephemeral');
 }
 
@@ -28,6 +26,16 @@ export class MemoryInvestigationStore {
   async get(organizationId, investigationId) {
     const record = this.records.get(recordKey(organizationId, investigationId));
     return record ? structuredClone(record) : null;
+  }
+
+  async update(organizationId, investigationId, investigation) {
+    const key = recordKey(organizationId, investigationId);
+    if (!this.records.has(key)) {
+      throw new MetricmindError('INVESTIGATION_NOT_FOUND', 'Investigation does not exist.', undefined, 404);
+    }
+    const record = validateInvestigationRecord({ ...structuredClone(investigation), organizationId, id: investigationId });
+    this.records.set(key, structuredClone(record));
+    return structuredClone(record);
   }
 
   async list(organizationId, options = {}) {
@@ -63,6 +71,15 @@ class BindingInvestigationStore {
     return record ? validateInvestigationRecord(record) : null;
   }
 
+  async update(organizationId, investigationId, investigation) {
+    if (typeof this.binding.update !== 'function') {
+      throw new MetricmindError('INVESTIGATION_UPDATES_UNSUPPORTED', 'The persistent investigation store does not implement update().', undefined, 503);
+    }
+    const record = validateInvestigationRecord({ ...structuredClone(investigation), organizationId, id: investigationId });
+    const updated = await this.binding.update(organizationId, investigationId, record);
+    return validateInvestigationRecord(updated ?? record);
+  }
+
   async list(organizationId, options = {}) {
     const safeOptions = { ...options, limit: boundedListLimit(options.limit ?? 20) };
     const records = await this.binding.list(organizationId, safeOptions);
@@ -80,7 +97,7 @@ export function validateInvestigationRecord(record) {
   if (!record.id || !record.organizationId || !record.question || !record.createdAt) {
     throw new MetricmindError('INVALID_INVESTIGATION_RECORD', 'Investigation ID, organization, question, and creation time are required.');
   }
-  if (!['completed', 'limited'].includes(record.status)) {
+  if (!['completed', 'limited', 'no_change'].includes(record.status)) {
     throw new MetricmindError('INVALID_INVESTIGATION_STATUS', 'Stored investigation status is invalid.');
   }
   if (!record.metric?.id || !record.metric?.versionId || !record.metric?.definitionHash) {
@@ -92,10 +109,26 @@ export function validateInvestigationRecord(record) {
   if (!Array.isArray(record.evidence) || !Array.isArray(record.hypotheses) || !Array.isArray(record.observations)) {
     throw new MetricmindError('INVALID_INVESTIGATION_EVIDENCE', 'Stored investigations require evidence, hypotheses, and observations arrays.');
   }
+  if (record.reviewHistory !== undefined) {
+    if (!Array.isArray(record.reviewHistory)) {
+      throw new MetricmindError('INVALID_INVESTIGATION_REVIEW_HISTORY', 'reviewHistory must be an array.');
+    }
+    for (const review of record.reviewHistory) validateReview(review);
+  }
+  if (record.resolution) validateReview(record.resolution);
   if (Number.isNaN(new Date(record.createdAt).getTime())) {
     throw new MetricmindError('INVALID_INVESTIGATION_TIMESTAMP', 'Investigation createdAt is invalid.');
   }
   return structuredClone(record);
+}
+
+function validateReview(review) {
+  if (!review?.id || !['accepted', 'rejected', 'inconclusive'].includes(review.decision) || !review.actorId) {
+    throw new MetricmindError('INVALID_INVESTIGATION_REVIEW', 'Stored investigation review is invalid.');
+  }
+  if (Number.isNaN(new Date(review.createdAt).getTime())) {
+    throw new MetricmindError('INVALID_INVESTIGATION_REVIEW', 'Stored investigation review timestamp is invalid.');
+  }
 }
 
 function boundedListLimit(value) {
