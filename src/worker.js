@@ -4,6 +4,7 @@ import { asPublicError, MetricmindError } from './errors.js';
 import { answerQuestion, interpretOnly } from './pipeline.js';
 import { discoverDataSource, getDataSourceFreshness, verifyDataSourceConnection } from './data-source.js';
 import { createMetricDraft, getActiveMetricVersion } from './semantic-catalog.js';
+import { auditMetricDraftCreation } from './semantic-audit.js';
 import {
   activateMetricVersion,
   attachValidationRun,
@@ -52,9 +53,10 @@ export default {
       if (request.method === 'POST' && createVersion) {
         const actorId = semanticMutationActor(request, env);
         const body = await readJson(request);
-        const result = createMetricDraft(semanticCatalog, decodeURIComponent(createVersion[1]), body.definition, actorId);
-        const saved = await semanticStore.save(workspace.organization.id, result.catalog, { expectedRevision: snapshot.revision });
-        return json({ revision: saved.revision, draft: result.draft }, 201);
+        const drafted = createMetricDraft(semanticCatalog, decodeURIComponent(createVersion[1]), body.definition, actorId);
+        const audited = auditMetricDraftCreation(drafted.catalog, drafted.draft.id, actorId);
+        const saved = await semanticStore.save(workspace.organization.id, audited.catalog, { expectedRevision: snapshot.revision });
+        return json({ revision: saved.revision, draft: audited.version }, 201);
       }
 
       const versionAction = url.pathname.match(/^\/v1\/semantic\/versions\/([^/]+)\/(submit|validate|verify|activate)$/);
