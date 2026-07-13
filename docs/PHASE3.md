@@ -28,6 +28,32 @@ why-question
 - Evidence strength is not causal confidence.
 - Every hypothesis reports `causalStatus: not_established`.
 
+## API
+
+```text
+POST /v1/investigations
+GET  /v1/investigations
+GET  /v1/investigations/{investigationId}
+```
+
+Example request:
+
+```json
+{
+  "question": "Why did signups drop last week?",
+  "dimensions": ["platform", "source"],
+  "maxDimensions": 4
+}
+```
+
+The response includes the pinned metric version, current and previous periods, data-quality evidence, observations, hypotheses, contradictions, exact queries, parameters, confidence, and next checks.
+
+## Persistence
+
+`INVESTIGATION_STORE` may bind an organization-scoped store implementing `save`, `get`, and `list`. Without that binding, the Worker uses an explicitly labelled ephemeral in-process store for local development. The API always returns the persistence mode.
+
+The Supabase migration creates an `investigations` table with RLS enabled deny-by-default. Organization membership policies remain deployment-specific and are not guessed in the repository.
+
 ## Initial supported investigation
 
 - complete-period metric comparison;
@@ -48,4 +74,5 @@ Phase 3 does not yet perform causal inference, forecasting, raw-user inspection,
 - Invalid semantic health blocks the investigation.
 - Stale ingestion lowers confidence and is presented as a possible distortion, not a proven cause.
 - Segment evidence identifies movement without assuming additivity for distinct entities.
+- Investigations are organization-scoped and preserve semantic lineage.
 - No generated output states or implies that association proves causation.
