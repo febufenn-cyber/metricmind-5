@@ -15,6 +15,7 @@ import { createSemanticStore } from './semantic-store.js';
 import { evaluateSemanticHealth, previewMetricVersion } from './semantic-validation.js';
 import { runInvestigation } from './investigation-engine.js';
 import { createInvestigationStore } from './investigation-store.js';
+import { reviewInvestigation } from './investigation-review.js';
 
 export default {
   async fetch(request, env = {}) {
@@ -147,6 +148,18 @@ export default {
         return json({ persistence: investigationStore.mode, investigations });
       }
 
+      const investigationConclusion = url.pathname.match(/^\/v1\/investigations\/([^/]+)\/conclusion$/);
+      if (request.method === 'POST' && investigationConclusion) {
+        const actorId = investigationMutationActor(request, env);
+        const investigationId = decodeURIComponent(investigationConclusion[1]);
+        const existing = await investigationStore.get(workspace.organization.id, investigationId);
+        if (!existing) throw new MetricmindError('INVESTIGATION_NOT_FOUND', 'Investigation does not exist.', undefined, 404);
+        const body = await readJson(request);
+        const reviewed = reviewInvestigation(existing, body, actorId, new Date());
+        const updated = await investigationStore.update(workspace.organization.id, investigationId, reviewed.investigation);
+        return json({ persistence: investigationStore.mode, investigation: updated, review: reviewed.review });
+      }
+
       const investigationDetail = url.pathname.match(/^\/v1\/investigations\/([^/]+)$/);
       if (request.method === 'GET' && investigationDetail) {
         const investigation = await investigationStore.get(workspace.organization.id, decodeURIComponent(investigationDetail[1]));
@@ -253,6 +266,15 @@ function semanticMutationActor(request, env) {
   }
   const actorId = request.headers.get('X-Metricmind-Actor');
   if (!actorId) throw new MetricmindError('SEMANTIC_ACTOR_REQUIRED', 'X-Metricmind-Actor is required for semantic changes.');
+  return actorId;
+}
+
+function investigationMutationActor(request, env) {
+  if (!env.API_TOKEN) {
+    throw new MetricmindError('INVESTIGATION_REVIEWS_DISABLED', 'Configure API_TOKEN before recording investigation reviews.', undefined, 503);
+  }
+  const actorId = request.headers.get('X-Metricmind-Actor');
+  if (!actorId) throw new MetricmindError('INVESTIGATION_ACTOR_REQUIRED', 'X-Metricmind-Actor is required for investigation reviews.');
   return actorId;
 }
 
