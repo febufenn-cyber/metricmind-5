@@ -96,7 +96,7 @@ test('semantic health marks metrics invalid when core columns disappear', () => 
   assert.ok(health.metrics.every((metric) => metric.missingCoreColumns.includes('user_id')));
 });
 
-test('worker creates a semantic draft only with authenticated persistent storage', async () => {
+test('worker creates and audits a semantic draft only with authenticated persistent storage', async () => {
   const semantic = catalog();
   const store = new MemorySemanticStore(semantic);
   const active = semantic.versions.find((version) => version.metricId === 'signup');
@@ -118,4 +118,6 @@ test('worker creates a semantic draft only with authenticated persistent storage
   const payload = await response.json();
   assert.equal(payload.revision, 2);
   assert.equal(payload.draft.status, 'draft');
+  const stored = await store.load(defaultWorkspace.organization.id);
+  assert.ok(stored.catalog.auditEvents.some((event) => event.action === 'metric_version_draft_created' && event.objectId === payload.draft.id));
 });
