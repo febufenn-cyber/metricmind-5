@@ -3,6 +3,7 @@ import { createWarehouseExecutor } from './executor.js';
 import { asPublicError, MetricmindError } from './errors.js';
 import { answerQuestion, interpretOnly } from './pipeline.js';
 import { discoverDataSource, getDataSourceFreshness, verifyDataSourceConnection } from './data-source.js';
+import { createSeedSemanticCatalog, getActiveMetricVersion } from './semantic-catalog.js';
 
 export default {
   async fetch(request, env = {}) {
@@ -10,18 +11,35 @@ export default {
     try {
       authenticate(request, env);
       const workspace = workspaceFromEnv(env);
+      const semanticCatalog = createSeedSemanticCatalog(workspace);
 
       if (request.method === 'GET' && url.pathname === '/health') {
         return json({ status: 'ok', phase: '1-trust-kernel' });
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/metrics') {
-        return json({ metrics: workspace.metrics.map(({ eventName: _eventName, ...metric }) => metric) });
+        return json({
+          metrics: semanticCatalog.metrics.map((metric) => {
+            const version = getActiveMetricVersion(semanticCatalog, metric.id);
+            return {
+              id: metric.id,
+              name: metric.name,
+              description: metric.description,
+              aliases: metric.aliases,
+              version: {
+                id: version.id,
+                number: version.versionNumber,
+                definitionHash: version.definitionHash,
+                status: version.status
+              }
+            };
+          })
+        });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/questions/interpret') {
         const body = await readJson(request);
-        return json({ interpretation: interpretOnly({ question: body.question, workspace }) });
+        return json({ interpretation: interpretOnly({ question: body.question, workspace, semanticCatalog }) });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/questions') {
@@ -32,6 +50,7 @@ export default {
         const result = await answerQuestion({
           question: body.question,
           workspace,
+          semanticCatalog,
           executor,
           now,
           freshness
