@@ -5,11 +5,20 @@ import { compileQuery } from './compiler.js';
 import { assertSafeSql } from './sql-policy.js';
 import { verifyResult } from './verifier.js';
 import { composeAnswer } from './composer.js';
+import { createSeedSemanticCatalog, validateSemanticCatalog } from './semantic-catalog.js';
 
-export async function answerQuestion({ question, workspace, executor, now = new Date(), freshness = { status: 'unknown', warning: null } }) {
+export async function answerQuestion({
+  question,
+  workspace,
+  semanticCatalog = createSeedSemanticCatalog(workspace),
+  executor,
+  now = new Date(),
+  freshness = { status: 'unknown', warning: null }
+}) {
   validateWorkspace(workspace);
-  const interpretation = interpretQuestion(question, workspace);
-  const plan = buildQueryPlan(interpretation, workspace, now);
+  validateSemanticCatalog(semanticCatalog);
+  const interpretation = interpretQuestion(question, workspace, semanticCatalog);
+  const plan = buildQueryPlan(interpretation, workspace, now, semanticCatalog);
   const compiled = compileQuery(plan, workspace);
   assertSafeSql(compiled, workspace);
   const execution = await executor.query({
@@ -23,15 +32,19 @@ export async function answerQuestion({ question, workspace, executor, now = new 
   return { interpretation, plan: serializablePlan(plan), answer };
 }
 
-export function interpretOnly({ question, workspace }) {
+export function interpretOnly({ question, workspace, semanticCatalog = createSeedSemanticCatalog(workspace) }) {
   validateWorkspace(workspace);
-  return interpretQuestion(question, workspace);
+  validateSemanticCatalog(semanticCatalog);
+  return interpretQuestion(question, workspace, semanticCatalog);
 }
 
 function serializablePlan(plan) {
   return {
     intent: plan.intent,
     metricId: plan.metric.id,
+    metricVersionId: plan.metricVersion.id,
+    metricVersionNumber: plan.metricVersion.versionNumber,
+    definitionHash: plan.metricVersion.definitionHash,
     dimension: plan.dimension?.id ?? null,
     current: {
       start: plan.current.start.toISOString(),
