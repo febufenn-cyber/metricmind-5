@@ -133,6 +133,12 @@ function composeInvestigation({ investigationPlan, baseline, baselineEvidence, b
       query: breakdown.evidence
     });
   }
+  if (freshness.status !== 'unknown') {
+    evidence.push({ id: 'data-quality:freshness', type: 'data_quality', finding: freshness });
+  }
+  if (metricHealth) {
+    evidence.push({ id: 'data-quality:semantic-health', type: 'data_quality', finding: metricHealth });
+  }
   const observations = buildObservations(baseline, breakdowns, freshness, metricHealth);
   const hypotheses = buildHypotheses(baseline, breakdowns, freshness, metricHealth);
   const confidence = investigationConfidence({ baseline, freshness, metricHealth, breakdowns });
@@ -140,7 +146,7 @@ function composeInvestigation({ investigationPlan, baseline, baselineEvidence, b
 
   return {
     id: `investigation-${investigationPlan.baselinePlan.metric.id}-${now.getTime()}`,
-    status: freshness.status === 'stale' || metricHealth?.status === 'warning' ? 'limited' : 'completed',
+    status: baseline.absoluteChange === 0 ? 'no_change' : freshness.status === 'stale' || metricHealth?.status === 'warning' ? 'limited' : 'completed',
     question: investigationPlan.question,
     metric: {
       id: investigationPlan.baselinePlan.metric.id,
@@ -192,7 +198,7 @@ function buildObservations(baseline, breakdowns, freshness, metricHealth) {
   if (freshness.status === 'stale') {
     observations.push({
       id: 'observation:data-stale',
-      evidenceIds: [],
+      evidenceIds: ['data-quality:freshness'],
       statement: freshness.warning ?? 'Warehouse ingestion is stale.',
       classification: 'data_quality'
     });
@@ -200,7 +206,7 @@ function buildObservations(baseline, breakdowns, freshness, metricHealth) {
   if (metricHealth?.status === 'warning') {
     observations.push({
       id: 'observation:semantic-warning',
-      evidenceIds: [],
+      evidenceIds: ['data-quality:semantic-health'],
       statement: (metricHealth.warnings ?? []).join(' ') || 'The metric has semantic health warnings.',
       classification: 'data_quality'
     });
@@ -216,7 +222,7 @@ function buildHypotheses(baseline, breakdowns, freshness, metricHealth) {
       statement: 'Ingestion delay could distort part or all of the observed comparison.',
       type: 'data_quality',
       evidenceStrength: 'moderate',
-      evidenceIds: [],
+      evidenceIds: ['data-quality:freshness'],
       contradictions: ['A stale timestamp does not prove the metric change is caused by ingestion delay.'],
       causalStatus: 'not_established'
     });
@@ -227,21 +233,36 @@ function buildHypotheses(baseline, breakdowns, freshness, metricHealth) {
       statement: 'A semantic dependency warning may reduce confidence in the observed change.',
       type: 'data_quality',
       evidenceStrength: 'low',
-      evidenceIds: [],
+      evidenceIds: ['data-quality:semantic-health'],
       contradictions: ['The query executed successfully and the warning may not affect this period.'],
       causalStatus: 'not_established'
     });
   }
+  if (baseline.absoluteChange === 0) {
+    hypotheses.push({
+      id: 'hypothesis:no-net-change',
+      statement: 'No net metric change was observed between the two complete periods, so root-cause investigation is not warranted.',
+      type: 'insufficient_evidence',
+      evidenceStrength: 'none',
+      evidenceIds: ['baseline'],
+      contradictions: [],
+      causalStatus: 'not_established'
+    });
+    return hypotheses.slice(0, 6);
+  }
   for (const breakdown of breakdowns) {
     const top = breakdown.segments[0];
     if (!top || top.absoluteMovement === 0) continue;
-    const opposite = breakdown.segments.filter((segment) => Math.sign(segment.absoluteChange) !== 0 && Math.sign(segment.absoluteChange) !== Math.sign(baseline.absoluteChange));
-    if (top.shareOfAbsoluteMovement >= 50) {
+    const direction = Math.sign(baseline.absoluteChange);
+    const aligned = breakdown.segments.filter((segment) => Math.sign(segment.absoluteChange) === direction);
+    const topAligned = aligned[0] ?? null;
+    const opposite = breakdown.segments.filter((segment) => Math.sign(segment.absoluteChange) !== 0 && Math.sign(segment.absoluteChange) !== direction);
+    if (topAligned && topAligned.shareOfAbsoluteMovement >= 50) {
       hypotheses.push({
         id: `hypothesis:${breakdown.dimension.id}:concentration`,
-        statement: `The observed change is concentrated in ${breakdown.dimension.name}=${top.segment}, which accounts for ${top.shareOfAbsoluteMovement.toFixed(1)}% of absolute segment movement.`,
+        statement: `The observed change is concentrated in ${breakdown.dimension.name}=${topAligned.segment}, which accounts for ${topAligned.shareOfAbsoluteMovement.toFixed(1)}% of absolute segment movement in the same direction as the baseline.`,
         type: 'association',
-        evidenceStrength: top.shareOfAbsoluteMovement >= 70 ? 'strong' : 'moderate',
+        evidenceStrength: topAligned.shareOfAbsoluteMovement >= 70 ? 'strong' : 'moderate',
         evidenceIds: [`dimension:${breakdown.dimension.id}`],
         contradictions: opposite.slice(0, 3).map((segment) => `${segment.segment} moved in the opposite direction (${segment.absoluteChange >= 0 ? '+' : ''}${segment.absoluteChange}).`),
         causalStatus: 'not_established'
@@ -274,6 +295,7 @@ function buildHypotheses(baseline, breakdowns, freshness, metricHealth) {
 
 function investigationConfidence({ baseline, freshness, metricHealth, breakdowns }) {
   if (freshness.status === 'stale') return { level: 'low', score: 0.45, reason: 'Warehouse freshness is outside the configured threshold.' };
+  if (freshness.status === 'unknown') return { level: 'medium', score: 0.6, reason: 'Warehouse freshness could not be verified.' };
   if (metricHealth?.status === 'warning') return { level: 'medium', score: 0.65, reason: 'The metric has semantic health warnings.' };
   if (baseline.previous === 0) return { level: 'medium', score: 0.68, reason: 'Percentage change is undefined because the previous value was zero.' };
   if (breakdowns.length === 0) return { level: 'medium', score: 0.7, reason: 'The baseline is verified, but no segment decomposition was available.' };
