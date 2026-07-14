@@ -1,9 +1,11 @@
 import { MetricmindError } from './errors.js';
+import { PostgresInvestigationStore } from './metadata-store.js';
 
 const processRecords = new Map();
 
 export function createInvestigationStore(env = {}) {
   if (env.INVESTIGATION_STORE) return new BindingInvestigationStore(env.INVESTIGATION_STORE);
+  if (env.METADATA_DB) return new PostgresInvestigationStore(env.METADATA_DB);
   return new MemoryInvestigationStore(processRecords, 'ephemeral');
 }
 

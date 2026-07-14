@@ -16,32 +16,45 @@ import { evaluateSemanticHealth, previewMetricVersion } from './semantic-validat
 import { runInvestigation } from './investigation-engine.js';
 import { createInvestigationStore } from './investigation-store.js';
 import { reviewInvestigation } from './investigation-review.js';
+import { authenticateRequest } from './auth.js';
+import { authorize } from './authorization.js';
 
 export default {
   async fetch(request, env = {}) {
     const url = new URL(request.url);
     try {
-      authenticate(request, env);
-      const workspace = workspaceFromEnv(env);
+      if (request.method === 'GET' && url.pathname === '/health') {
+        return json({ status: 'ok', phase: '4-production-identity' });
+      }
+
+      const principal = await authenticateRequest(request, env);
+      const workspace = workspaceFromEnv(env, principal.organizationId);
       const semanticStore = createSemanticStore(env, workspace);
       const snapshot = await semanticStore.load(workspace.organization.id);
       const semanticCatalog = snapshot.catalog;
       const investigationStore = createInvestigationStore(env);
 
-      if (request.method === 'GET' && url.pathname === '/health') {
-        return json({ status: 'ok', phase: '1-trust-kernel' });
+      if (request.method === 'GET' && url.pathname === '/v1/session') {
+        return json({
+          user: { id: principal.userId, email: principal.email },
+          organization: { id: principal.organizationId, role: principal.role },
+          authenticationMode: principal.authenticationMode
+        }, 200, { 'Cache-Control': 'no-store' });
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/metrics') {
+        authorize(principal, 'analytics:read');
         return json({ metrics: listMetrics(semanticCatalog) });
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/semantic/metrics') {
-        return json({ revision: snapshot.revision, metrics: listMetrics(semanticCatalog) });
+        authorize(principal, 'semantic:read');
+        return json({ revision: snapshot.revision, persistence: semanticStore.mode ?? 'binding', metrics: listMetrics(semanticCatalog) });
       }
 
       const metricDetail = url.pathname.match(/^\/v1\/semantic\/metrics\/([^/]+)$/);
       if (request.method === 'GET' && metricDetail) {
+        authorize(principal, 'semantic:read');
         const metric = semanticCatalog.metrics.find((item) => item.id === decodeURIComponent(metricDetail[1]));
         if (!metric) throw new MetricmindError('UNKNOWN_METRIC', 'Metric does not exist.', undefined, 404);
         return json({
@@ -55,22 +68,24 @@ export default {
 
       const createVersion = url.pathname.match(/^\/v1\/semantic\/metrics\/([^/]+)\/versions$/);
       if (request.method === 'POST' && createVersion) {
-        const actorId = semanticMutationActor(request, env);
+        authorize(principal, 'semantic:edit');
+        requireDurableStore(semanticStore, 'Semantic mutations');
         const body = await readJson(request);
-        const drafted = createMetricDraft(semanticCatalog, decodeURIComponent(createVersion[1]), body.definition, actorId);
-        const audited = auditMetricDraftCreation(drafted.catalog, drafted.draft.id, actorId);
+        const drafted = createMetricDraft(semanticCatalog, decodeURIComponent(createVersion[1]), body.definition, principal.userId);
+        const audited = auditMetricDraftCreation(drafted.catalog, drafted.draft.id, principal.userId);
         const saved = await semanticStore.save(workspace.organization.id, audited.catalog, { expectedRevision: snapshot.revision });
         return json({ revision: saved.revision, draft: audited.version }, 201);
       }
 
       const versionAction = url.pathname.match(/^\/v1\/semantic\/versions\/([^/]+)\/(submit|validate|verify|activate)$/);
       if (request.method === 'POST' && versionAction) {
-        const actorId = semanticMutationActor(request, env);
         const versionId = decodeURIComponent(versionAction[1]);
         const action = versionAction[2];
+        authorize(principal, action === 'verify' || action === 'activate' ? 'semantic:approve' : 'semantic:edit');
+        requireDurableStore(semanticStore, 'Semantic mutations');
         let result;
         if (action === 'submit') {
-          result = submitMetricVersion(semanticCatalog, versionId, actorId);
+          result = submitMetricVersion(semanticCatalog, versionId, principal.userId);
         } else if (action === 'validate') {
           const body = await readJson(request);
           const validationRun = await previewMetricVersion({
@@ -82,11 +97,11 @@ export default {
             period: body.period ?? 'last_7_complete_days',
             expectedValue: body.expectedValue
           });
-          result = attachValidationRun(semanticCatalog, validationRun, actorId);
+          result = attachValidationRun(semanticCatalog, validationRun, principal.userId);
         } else if (action === 'verify') {
-          result = verifyMetricVersion(semanticCatalog, versionId, actorId);
+          result = verifyMetricVersion(semanticCatalog, versionId, principal.userId);
         } else {
-          result = activateMetricVersion(semanticCatalog, versionId, actorId);
+          result = activateMetricVersion(semanticCatalog, versionId, principal.userId);
         }
         const saved = await semanticStore.save(workspace.organization.id, result.catalog, { expectedRevision: snapshot.revision });
         return json({
@@ -98,28 +113,18 @@ export default {
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/semantic/health') {
-        const schema = await discoverDataSource({
-          executor: createWarehouseExecutor(env),
-          workspace,
-          eventLimit: 1,
-          eventLookbackDays: 1,
-          now: new Date()
-        });
+        authorize(principal, 'semantic:read');
+        const schema = await discoverDataSource({ executor: createWarehouseExecutor(env), workspace, eventLimit: 1, eventLookbackDays: 1, now: new Date() });
         return json({ revision: snapshot.revision, ...evaluateSemanticHealth(semanticCatalog, schema) });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/investigations') {
+        authorize(principal, 'investigation:create');
         const body = await readJson(request);
         const executor = createWarehouseExecutor(env);
         const now = new Date();
         const freshness = await getDataSourceFreshness({ executor, workspace, now });
-        const schema = await discoverDataSource({
-          executor,
-          workspace,
-          eventLimit: 1,
-          eventLookbackDays: 1,
-          now
-        });
+        const schema = await discoverDataSource({ executor, workspace, eventLimit: 1, eventLookbackDays: 1, now });
         const semanticHealth = evaluateSemanticHealth(semanticCatalog, schema);
         const investigation = await runInvestigation({
           question: body.question,
@@ -135,12 +140,13 @@ export default {
         const stored = await investigationStore.save(workspace.organization.id, {
           ...investigation,
           semanticRevision: snapshot.revision,
-          requestedBy: request.headers.get('X-Metricmind-Actor') ?? null
+          requestedBy: principal.userId
         });
         return json({ persistence: investigationStore.mode, investigation: stored }, 201, { 'Cache-Control': 'no-store' });
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/investigations') {
+        authorize(principal, 'investigation:read');
         const investigations = await investigationStore.list(workspace.organization.id, {
           limit: Number(url.searchParams.get('limit') ?? 20),
           metricId: url.searchParams.get('metricId') ?? undefined
@@ -150,50 +156,48 @@ export default {
 
       const investigationConclusion = url.pathname.match(/^\/v1\/investigations\/([^/]+)\/conclusion$/);
       if (request.method === 'POST' && investigationConclusion) {
-        const actorId = investigationMutationActor(request, env);
+        authorize(principal, 'investigation:review');
         const investigationId = decodeURIComponent(investigationConclusion[1]);
         const existing = await investigationStore.get(workspace.organization.id, investigationId);
         if (!existing) throw new MetricmindError('INVESTIGATION_NOT_FOUND', 'Investigation does not exist.', undefined, 404);
         const body = await readJson(request);
-        const reviewed = reviewInvestigation(existing, body, actorId, new Date());
+        const reviewed = reviewInvestigation(existing, body, principal.userId, new Date());
         const updated = await investigationStore.update(workspace.organization.id, investigationId, reviewed.investigation);
         return json({ persistence: investigationStore.mode, investigation: updated, review: reviewed.review });
       }
 
       const investigationDetail = url.pathname.match(/^\/v1\/investigations\/([^/]+)$/);
       if (request.method === 'GET' && investigationDetail) {
+        authorize(principal, 'investigation:read');
         const investigation = await investigationStore.get(workspace.organization.id, decodeURIComponent(investigationDetail[1]));
         if (!investigation) throw new MetricmindError('INVESTIGATION_NOT_FOUND', 'Investigation does not exist.', undefined, 404);
         return json({ persistence: investigationStore.mode, investigation });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/questions/interpret') {
+        authorize(principal, 'analytics:read');
         const body = await readJson(request);
         return json({ interpretation: interpretOnly({ question: body.question, workspace, semanticCatalog }) });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/questions') {
+        authorize(principal, 'analytics:read');
         const body = await readJson(request);
         const executor = createWarehouseExecutor(env);
         const now = new Date();
         const freshness = await getDataSourceFreshness({ executor, workspace, now });
-        const result = await answerQuestion({
-          question: body.question,
-          workspace,
-          semanticCatalog,
-          executor,
-          now,
-          freshness
-        });
+        const result = await answerQuestion({ question: body.question, workspace, semanticCatalog, executor, now, freshness });
         return json(result, 200, { 'Cache-Control': 'no-store' });
       }
 
       if (request.method === 'POST' && url.pathname === '/v1/data-sources/test') {
+        authorize(principal, 'organization:admin');
         const result = await verifyDataSourceConnection({ executor: createWarehouseExecutor(env), workspace });
         return json(result);
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/data-sources/schema') {
+        authorize(principal, 'analytics:read');
         const result = await discoverDataSource({
           executor: createWarehouseExecutor(env),
           workspace,
@@ -205,6 +209,7 @@ export default {
       }
 
       if (request.method === 'GET' && url.pathname === '/v1/data-sources/freshness') {
+        authorize(principal, 'analytics:read');
         const result = await getDataSourceFreshness({ executor: createWarehouseExecutor(env), workspace, now: new Date() });
         return json(result, 200, { 'Cache-Control': 'no-store' });
       }
@@ -225,21 +230,17 @@ function listMetrics(semanticCatalog) {
       name: metric.name,
       description: metric.description,
       aliases: metric.aliases,
-      version: {
-        id: version.id,
-        number: version.versionNumber,
-        definitionHash: version.definitionHash,
-        status: version.status
-      }
+      version: { id: version.id, number: version.versionNumber, definitionHash: version.definitionHash, status: version.status }
     };
   });
 }
 
-export function workspaceFromEnv(env = {}) {
+export function workspaceFromEnv(env = {}, organizationId = env.ORGANIZATION_ID || defaultWorkspace.organization.id) {
   return {
     ...defaultWorkspace,
     organization: {
       ...defaultWorkspace.organization,
+      id: organizationId,
       timezone: env.ORGANIZATION_TIMEZONE || defaultWorkspace.organization.timezone
     },
     dataSource: {
@@ -260,22 +261,10 @@ export function workspaceFromEnv(env = {}) {
   };
 }
 
-function semanticMutationActor(request, env) {
-  if (!env.API_TOKEN) {
-    throw new MetricmindError('SEMANTIC_MUTATIONS_DISABLED', 'Configure API_TOKEN and a persistent semantic store before enabling semantic mutations.', undefined, 503);
+function requireDurableStore(store, label) {
+  if (store.mode === 'readonly_seed' || store.mode === 'ephemeral') {
+    throw new MetricmindError('DURABLE_STORE_REQUIRED', `${label} require a durable organization-scoped metadata store.`, undefined, 503);
   }
-  const actorId = request.headers.get('X-Metricmind-Actor');
-  if (!actorId) throw new MetricmindError('SEMANTIC_ACTOR_REQUIRED', 'X-Metricmind-Actor is required for semantic changes.');
-  return actorId;
-}
-
-function investigationMutationActor(request, env) {
-  if (!env.API_TOKEN) {
-    throw new MetricmindError('INVESTIGATION_REVIEWS_DISABLED', 'Configure API_TOKEN before recording investigation reviews.', undefined, 503);
-  }
-  const actorId = request.headers.get('X-Metricmind-Actor');
-  if (!actorId) throw new MetricmindError('INVESTIGATION_ACTOR_REQUIRED', 'X-Metricmind-Actor is required for investigation reviews.');
-  return actorId;
 }
 
 function positiveIntegerEnv(value, fallback, name) {
@@ -290,14 +279,6 @@ function positiveIntegerEnv(value, fallback, name) {
 function optionalColumn(value, fallback) {
   if (value === undefined) return fallback;
   return value === '' || value === 'none' ? null : value;
-}
-
-function authenticate(request, env) {
-  if (!env.API_TOKEN) return;
-  const authorization = request.headers.get('Authorization');
-  if (authorization !== `Bearer ${env.API_TOKEN}`) {
-    throw new MetricmindError('UNAUTHORIZED', 'A valid bearer token is required.', undefined, 401);
-  }
 }
 
 async function readJson(request) {
