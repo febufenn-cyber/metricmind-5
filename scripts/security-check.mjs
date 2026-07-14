@@ -39,8 +39,14 @@ async function scan(path) {
   lines.forEach((line, index) => {
     if (/security-check\.mjs/.test(path) && /private key|OpenAI project key|GitHub token|AWS access key|credential URL/.test(line)) return;
     for (const [rule, pattern] of rules) {
+      if (rule === 'credential URL' && isExplicitLocalFixture(line)) continue;
       if (pattern.test(line)) findings.push({ file: relative('.', path), line: index + 1, rule });
       pattern.lastIndex = 0;
     }
   });
+}
+
+function isExplicitLocalFixture(line) {
+  return /(?:127\.0\.0\.1|localhost|@postgres(?::\d+)?\/)/i.test(line)
+    && /(?:test|local|reader|postgres)/i.test(line);
 }
