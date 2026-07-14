@@ -8,6 +8,9 @@ ORGANIZATION_TIMEZONE = "Asia/Kolkata"
 ANALYTICS_SCHEMA = "analytics"
 ANALYTICS_TABLE = "product_events"
 
+[triggers]
+crons = ["0 * * * *"]
+
 # Create the binding with:
 # npx wrangler hyperdrive create metricmind-analytics \
 #   --connection-string="$METRICMIND_READER_DATABASE_URL" \
