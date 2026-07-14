@@ -1,5 +1,5 @@
 name = "metricmind-api"
-main = "src/worker.js"
+main = "src/app-worker.js"
 compatibility_date = "2026-07-12"
 compatibility_flags = ["nodejs_compat"]
 
