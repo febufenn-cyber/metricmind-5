@@ -9,7 +9,7 @@ const rules = [
   ['OpenAI project key', /\bsk-proj-[A-Za-z0-9_-]{20,}\b/],
   ['GitHub token', /\bgh[pousr]_[A-Za-z0-9]{30,}\b/],
   ['AWS access key', /\bAKIA[0-9A-Z]{16}\b/],
-  ['credential URL', /\b(?:postgres|postgresql|mysql):\/\/(?![^\s/:@]+:(?:password|example|replace-me|<[^>]+>)@)[^\s/:@]+:[^\s/@]+@/i]
+  ['credential URL', /\b(?:postgres|postgresql|mysql):\/\/(?![^\s/:@]+:(?:password|example|replace-me|\.\.\.|<[^>]+>)@)[^\s/:@]+:[^\s/@]+@/i]
 ];
 
 for (const root of roots) await walk(root);
