@@ -8,7 +8,7 @@ import { evaluateReadiness } from '../src/readiness.js';
 test('redaction removes secrets, bearer tokens, SQL parameters, and credential URLs', () => {
   const safe = redact({
     authorization: 'Bearer abc.def.ghi',
-    nested: { password: 'secret', value: 'postgres://user:pass@example.test/database' },
+    nested: { password: 'secret', value: 'postgres://user:password@example.test/database' },
     sql: 'select * from users',
     parameters: ['private']
   });
