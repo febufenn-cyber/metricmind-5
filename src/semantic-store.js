@@ -1,5 +1,6 @@
 import { MetricmindError } from './errors.js';
 import { createSeedSemanticCatalog, validateSemanticCatalog } from './semantic-catalog.js';
+import { PostgresSemanticStore } from './metadata-store.js';
 
 export class MemorySemanticStore {
   constructor(catalog, revision = 1) {
@@ -8,6 +9,7 @@ export class MemorySemanticStore {
       catalog: structuredClone(catalog),
       revision
     }]]);
+    this.mode = 'memory';
   }
 
   async load(organizationId) {
@@ -41,12 +43,15 @@ export function createSemanticStore(env, workspace) {
   if (env?.SEMANTIC_STORE && typeof env.SEMANTIC_STORE.load === 'function' && typeof env.SEMANTIC_STORE.save === 'function') {
     return env.SEMANTIC_STORE;
   }
-  return new ReadonlySeedSemanticStore(createSeedSemanticCatalog(workspace));
+  const seed = createSeedSemanticCatalog(workspace);
+  if (env?.METADATA_DB) return new PostgresSemanticStore(env.METADATA_DB, seed);
+  return new ReadonlySeedSemanticStore(seed);
 }
 
 class ReadonlySeedSemanticStore {
   constructor(catalog) {
     this.catalog = catalog;
+    this.mode = 'readonly_seed';
   }
 
   async load(organizationId) {
