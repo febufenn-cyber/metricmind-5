@@ -50,9 +50,11 @@ export async function verifyHs256Jwt(token, env = {}, now = new Date()) {
   if (parts.length !== 3) throw unauthorized();
   let header;
   let claims;
+  let signature;
   try {
     header = JSON.parse(decodeBase64Url(parts[0]));
     claims = JSON.parse(decodeBase64Url(parts[1]));
+    signature = decodeBase64UrlBytes(parts[2]);
   } catch {
     throw unauthorized();
   }
@@ -67,7 +69,7 @@ export async function verifyHs256Jwt(token, env = {}, now = new Date()) {
   const valid = await crypto.subtle.verify(
     'HMAC',
     key,
-    decodeBase64UrlBytes(parts[2]),
+    signature,
     encoder.encode(`${parts[0]}.${parts[1]}`)
   );
   if (!valid) throw unauthorized();
