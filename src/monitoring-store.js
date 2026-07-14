@@ -20,10 +20,10 @@ export class MemoryMonitoringStore {
     return structuredClone(record);
   }
   async listRules(organizationId) {
-    return [...this.state.rules.values()].filter((rule) => rule.organizationId === organizationId).map(structuredClone);
+    return [...this.state.rules.values()].filter((rule) => rule.organizationId === organizationId).map((item) => structuredClone(item));
   }
   async listDue(now = new Date()) {
-    return [...this.state.rules.values()].filter((rule) => rule.enabled && isDue(rule, now)).map(structuredClone);
+    return [...this.state.rules.values()].filter((rule) => rule.enabled && isDue(rule, now)).map((item) => structuredClone(item));
   }
   async claim(ruleId, idempotencyKey) {
     const claimKey = `${ruleId}:${idempotencyKey}`;
@@ -43,7 +43,7 @@ export class MemoryMonitoringStore {
     return structuredClone(delivery);
   }
   async listDeliveries(organizationId, limit = 50) {
-    return this.state.deliveries.filter((item) => item.organizationId === organizationId).slice(-bounded(limit)).reverse().map(structuredClone);
+    return this.state.deliveries.filter((item) => item.organizationId === organizationId).slice(-bounded(limit)).reverse().map((item) => structuredClone(item));
   }
 }
 
@@ -55,8 +55,8 @@ class BindingMonitoringStore {
     this.binding = binding; this.mode = 'persistent';
   }
   async saveRule(org, rule){return validateMonitoringRule(await this.binding.saveRule(org, validateMonitoringRule({...rule,organizationId:org})))}
-  async listRules(org){return (await this.binding.listRules(org)).map(validateMonitoringRule)}
-  async listDue(now){return (await this.binding.listDue(now)).map(validateMonitoringRule)}
+  async listRules(org){return (await this.binding.listRules(org)).map((item)=>validateMonitoringRule(item))}
+  async listDue(now){return (await this.binding.listDue(now)).map((item)=>validateMonitoringRule(item))}
   async claim(...args){return Boolean(await this.binding.claim(...args))}
   async complete(...args){return this.binding.complete(...args)}
   async latestTriggered(...args){return this.binding.latestTriggered(...args)}
