@@ -1,7 +1,11 @@
-# Optional local bearer token. Requests are unauthenticated when omitted.
+# Local bootstrap token only. Production readiness requires this to be absent.
 API_TOKEN=replace-me
+ENVIRONMENT=development
+LOG_LEVEL=silent
+API_RATE_LIMIT_PER_MINUTE=120
 
 # Organization and canonical event-table mapping.
+ORGANIZATION_ID=demo-org
 ORGANIZATION_TIMEZONE=Asia/Kolkata
 ANALYTICS_SCHEMA=analytics
 ANALYTICS_TABLE=product_events
@@ -13,6 +17,10 @@ ANALYTICS_STATEMENT_TIMEOUT_MS=15000
 ANALYTICS_MAXIMUM_ROWS=1000
 ANALYTICS_FRESHNESS_THRESHOLD_MINUTES=360
 
+# Production also requires platform bindings for AUTH_VERIFIER or approved JWT
+# verification, membership and durable metadata, HYPERDRIVE/ANALYTICS_DB,
+# RATE_LIMITER, and provider notification adapters. Do not place secrets here.
+
 # Hyperdrive local development uses a shell environment variable rather than
-# .dev.vars. For the HYPERDRIVE binding, export:
-# CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=postgres://metricmind_reader:metricmind_local@127.0.0.1:55432/metricmind
+# .dev.vars. For the HYPERDRIVE binding, export the local fixture connection
+# string documented in README.md.

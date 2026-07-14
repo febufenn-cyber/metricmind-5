@@ -1,4 +1,4 @@
-name: phase-1-ci
+name: metricmind-ci
 
 on:
   pull_request:
@@ -8,9 +8,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: metricmind-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16-alpine

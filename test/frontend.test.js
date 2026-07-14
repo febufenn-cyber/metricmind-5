@@ -36,11 +36,13 @@ test('application Worker serves assets and delegates API routes', async () => {
   const page = await appWorker.fetch(new Request('https://metricmind.test/'));
   assert.equal(page.status, 200);
   assert.match(page.headers.get('Content-Type'), /text\/html/);
+  assert.ok(page.headers.get('X-Correlation-ID'));
   const script = await appWorker.fetch(new Request('https://metricmind.test/assets/app.js'));
   assert.equal(script.status, 200);
   assert.match(script.headers.get('Content-Type'), /text\/javascript/);
   const health = await appWorker.fetch(new Request('https://metricmind.test/health'));
-  assert.deepEqual(await health.json(), { status: 'ok', phase: '4-production-identity' });
+  assert.deepEqual(await health.json(), { status: 'ok', phase: '8-production-v1' });
+  assert.ok(health.headers.get('X-Correlation-ID'));
 });
 
 test('unknown frontend paths remain API 404s instead of returning the app shell', async () => {
