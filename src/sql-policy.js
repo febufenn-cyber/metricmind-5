@@ -5,7 +5,7 @@ const SYSTEM_SCHEMA = /\b(pg_catalog|information_schema|pg_toast|auth)\b/i;
 
 export function assertSafeSql(compiled, workspace) {
   const sql = compiled?.sql;
-  if (typeof sql !== 'string' || sql.length === 0 || sql.length > 20_000) {
+  if (typeof sql !== 'string' || sql.length === 0 || sql.length > 30_000) {
     throw new MetricmindError('INVALID_SQL', 'Generated SQL is empty or exceeds the safety limit.');
   }
   const stripped = stripQuotedLiterals(sql);
@@ -25,10 +25,12 @@ export function assertSafeSql(compiled, workspace) {
     throw new MetricmindError('FORBIDDEN_SCHEMA', 'System and authentication schemas are not queryable.');
   }
 
-  const allowedQualifiedTable = `"${workspace.dataSource.schema}"."${workspace.dataSource.table}"`;
+  const configuredTable = `"${workspace.dataSource.schema}"."${workspace.dataSource.table}"`;
+  const allowedTables = new Set([configuredTable, ...(compiled.allowedTables ?? [])]);
+  const allowedRelations = new Set(compiled.allowedRelations ?? []);
   const tableMatches = [...stripped.matchAll(/\b(from|join)\s+([^\s,)]+)/gi)].map((match) => match[2]);
-  if (tableMatches.length === 0 || tableMatches.some((table) => table !== allowedQualifiedTable)) {
-    throw new MetricmindError('TABLE_NOT_ALLOWLISTED', 'The query references a table outside the data-source allowlist.', { tableMatches });
+  if (tableMatches.length === 0 || tableMatches.some((table) => !allowedTables.has(table) && !allowedRelations.has(table))) {
+    throw new MetricmindError('TABLE_NOT_ALLOWLISTED', 'The query references a table or relation outside the data-source allowlist.', { tableMatches });
   }
   if (!Array.isArray(compiled.params) || compiled.params.length === 0) {
     throw new MetricmindError('UNPARAMETERIZED_QUERY', 'Queries must use bound parameters.');
