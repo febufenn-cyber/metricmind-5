@@ -24,7 +24,7 @@ export async function emitLog(env, event) {
     await env.LOG_SINK.write(safe);
     return;
   }
-  if (env.LOG_LEVEL === 'silent') return;
+  if (env.LOG_LEVEL !== 'console') return;
   console.log(JSON.stringify(safe));
 }
 
