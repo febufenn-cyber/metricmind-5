@@ -81,3 +81,7 @@ Question
 ```
 
 See [`docs/PHASE1.md`](docs/PHASE1.md) for product boundaries and [`docs/PHASE1B.md`](docs/PHASE1B.md) for reader-role and Hyperdrive operations.
+
+## Roadmap
+
+Phases 1-3 are implemented. The production-V1 execution plan for Phases 4-8, including the autonomous `build` protocol and merge gates, is in [`docs/REMAINING_PHASES_IMPLEMENTATION_PLAN.md`](docs/REMAINING_PHASES_IMPLEMENTATION_PLAN.md).
